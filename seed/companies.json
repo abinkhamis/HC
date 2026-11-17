@@ -1,0 +1,53 @@
+{
+  "_note": "Sample companies only. Replace with your own companies, or add them from the Admin screens after the first run.",
+  "companies": [
+    {
+      "code": "coa",
+      "name_ar": "شركة أ",
+      "name_en": "Company A",
+      "colors": {
+        "primary": "#1F4E79",
+        "secondary": "#2E75B6",
+        "accent": "#F4B183",
+        "ink": "#1A1A1A"
+      },
+      "color_source": "ألوان افتراضية للمثال",
+      "logo": "logos/company-a.png"
+    },
+    {
+      "code": "cob",
+      "name_ar": "شركة ب",
+      "name_en": "Company B",
+      "colors": {
+        "primary": "#385723",
+        "secondary": "#70AD47",
+        "accent": null,
+        "ink": "#1A1A1A"
+      },
+      "color_source": "ألوان افتراضية للمثال",
+      "logo": "logos/company-b.png"
+    }
+  ],
+  "letter_types": [
+    {
+      "code": "salary_certificate",
+      "name_ar": "تعريف بالراتب",
+      "name_en": "Salary Certificate"
+    },
+    {
+      "code": "salary_transfer",
+      "name_ar": "تثبيت راتب",
+      "name_en": "Salary Transfer Letter"
+    },
+    {
+      "code": "experience_certificate",
+      "name_ar": "شهادة خبرة",
+      "name_en": "Experience Certificate"
+    },
+    {
+      "code": "clearance",
+      "name_ar": "إخلاء طرف",
+      "name_en": "Clearance"
+    }
+  ]
+}
