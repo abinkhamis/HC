@@ -596,8 +596,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const pi = process.argv.indexOf('--port');
   const port = Number(pi > 0 ? process.argv[pi + 1] : process.env.PORT) || 4300;
   const i = process.argv.indexOf('--data-dir');
-  const dataDir = i > 0 ? path.resolve(process.argv[i + 1]) : null;
-  const server = createApp(dataDir ? { dbFile: path.join(dataDir, 'hub.db'), storageDir: path.join(dataDir, 'storage') } : {});
+  // Hosting: DATA_DIR = persistent disk, HOST=0.0.0.0 to accept outside connections (default: this computer only)
+  const dataDir = i > 0 ? path.resolve(process.argv[i + 1]) : process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : null;
+  const host = process.env.HOST || '127.0.0.1';
+  const opts = dataDir ? { dbFile: path.join(dataDir, 'hub.db'), storageDir: path.join(dataDir, 'storage') } : {};
+  // First start on a new server: create the companies and accounts (passwords from ADMIN_PASSWORD / TEAM_PASSWORD when set).
+  if (process.env.AUTO_SEED === '1') {
+    const { seed } = await import('./seed.js');
+    const r = seed({ ...opts, demo: false, adminPassword: process.env.ADMIN_PASSWORD, teamPassword: process.env.TEAM_PASSWORD });
+    r.db.close();
+  }
+  const server = createApp(opts);
   server.on('error', (e) => {
     if (e.code === 'EADDRINUSE') {
       console.log(`HC Operations Hub is already running on http://localhost:${port} - nothing else started.`);
@@ -605,5 +614,5 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     }
     throw e;
   });
-  server.listen(port, '127.0.0.1', () => console.log(`HC Operations Hub -> http://localhost:${port}`));
+  server.listen(port, host, () => console.log(`HC Operations Hub -> http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`));
 }

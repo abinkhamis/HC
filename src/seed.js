@@ -13,7 +13,7 @@ import { tenantRepo } from './tenancy.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export function seed({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageDir = path.join(ROOT, 'storage'), demo = true, writeCredentials = true } = {}) {
+export function seed({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageDir = path.join(ROOT, 'storage'), demo = true, writeCredentials = true, adminPassword, teamPassword } = {}) {
   const db = openDb(dbFile);
   if (db.prepare('SELECT COUNT(*) n FROM companies').get().n > 0) {
     console.log('Database already initialised — nothing to do.');
@@ -21,7 +21,7 @@ export function seed({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageDir = 
   }
   const cfg = JSON.parse(fs.readFileSync(path.join(ROOT, 'seed', 'companies.json'), 'utf8'));
   const pw = () => crypto.randomBytes(9).toString('base64url');
-  const creds = { admin: pw(), team: pw() };
+  const creds = { admin: adminPassword || pw(), team: teamPassword || pw() };
 
   tx(db, () => {
     const adminId = Number(db.prepare(`INSERT INTO users (username, display_name, password_hash, role) VALUES ('admin', 'مسؤول النظام', ?, 'admin')`).run(hashPassword(creds.admin)).lastInsertRowid);
