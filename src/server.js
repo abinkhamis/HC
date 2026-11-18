@@ -20,11 +20,12 @@ import { annotateEmployees, statusCounts, DISPLAY_STATUS } from './employees.js'
 import { createEmployeeImport } from './employee-import.js';
 import { createAccounts } from './accounts.js';
 import { createReports, printPage, htmlTable, escHtml, fmtDate } from './reports.js';
+import { createHome } from './home.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const MAX_BODY = 25 * 1024 * 1024;
-const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const STATIC_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.ttf': 'font/ttf', '.woff2': 'font/woff2' };
 
 // Validates an official Excel template: only known payment-request placeholders are accepted.
 function analyzeXlsxTemplate(buffer, filename) {
@@ -50,6 +51,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   const employeeImport = createEmployeeImport(db);
   const accounts = createAccounts(db);
   const reports = createReports(db);
+  const home = createHome(db, { airTickets });
   const templateFlow = createTemplateWorkflow(db, storageDir);
 
   // opts: { auth = true, admin = false, tenant = false }
@@ -409,6 +411,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
     return SENT;
   };
   const brandOf = (company) => company.color_primary || '#3d4654';
+  route('GET', '/api/home', T, ({ company, session }) => home.summary(company, session.user));
   route('GET', '/api/reports/weekly', T, ({ company, query }) => reports.weekly(company, query));
   route('GET', '/api/reports/weekly.xlsx', T, ({ company, query, res }) => { const w = reports.weekly(company, query); return xlsxOut(res, reports.weeklyXlsx(company, query), `التقرير الأسبوعي ${company.name_ar} ${w.from}.xlsx`); });
   route('GET', '/api/reports/weekly/print', T, ({ company, query, res }) => {
@@ -575,7 +578,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
       'Cache-Control': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'same-origin',
-      'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-src 'self' blob:; object-src 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; frame-src 'self' blob:; object-src 'none'; frame-ancestors 'none'",
     });
     fs.createReadStream(abs).pipe(res);
   }

@@ -60,6 +60,8 @@ export function createProcedureViews(ctx) {
     const reload = () => view(main, tab);
     const fn = { dashboard: dashboardTab, cases: casesTab, outstanding: outstandingTab, log: logTab, settings: settingsTab }[t] || dashboardTab;
     await fn($('#pr-body'), reload);
+    // «موظف جديد» from the home page opens the new-onboarding form directly
+    if (t === 'new') { history.replaceState(null, '', '#/procedures'); caseForm('onboarding'); }
   }
 
   const caseTable = (rows, m, { extraHead = '', extraCell = () => '' } = {}) => (rows.length ? `<div class="table-wrap"><table><thead><tr>

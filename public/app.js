@@ -87,6 +87,8 @@ function applyBrand(company) {
   set('--brand-3', c.accent || c.secondary || c.primary);
   set('--brand-ink', c.ink);
   set('--on-brand', onColor(c.primary));
+  // each company's own Arabic font (see styles.css: :root[data-co])
+  if (company?.code) document.documentElement.dataset.co = company.code; else delete document.documentElement.dataset.co;
   document.title = company ? `HC Operations Hub — ${company.name_en}` : 'HC Operations Hub';
 }
 
@@ -325,13 +327,92 @@ const companyBanner = (verb = 'سيُحفظ هذا السجل في') => `
     <div>${verb} شركة: <b>${esc(state.company.name_ar)}</b> <span class="muted small">(${esc(state.company.name_en)})</span></div></div>`;
 
 // ---------- dashboard ----------
+// Greeting by Riyadh time: «صباح الخير» until noon, then «مساء الخير».
+const riyadhHour = () => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Riyadh', hour: 'numeric', hourCycle: 'h23' }).format(new Date()));
+const greeting = () => { const h = riyadhHour(); return h >= 4 && h < 12 ? 'صباح الخير' : 'مساء الخير'; };
+const todayLine = () => {
+  const d = new Date();
+  const g = new Intl.DateTimeFormat('ar-SA-u-ca-gregory-nu-arab', { timeZone: 'Asia/Riyadh', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  const h = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura-nu-arab', { timeZone: 'Asia/Riyadh', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  return `${g} · ${h}`;
+};
+const MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+const dayBox = (d) => (d ? `<div class="home-date"><b>${Number(d.slice(8, 10))}</b><span>${MONTHS_AR[Number(d.slice(5, 7)) - 1]}</span></div>` : '<div class="home-date"><b>—</b></div>');
+let greetTimer;
+
 async function viewDashboard(main) {
-  main.innerHTML = workspaceHead('الرئيسية') + '<div class="grid cols-3" id="stats"></div>';
-  const { counts } = await api('/api/dashboard');
-  const ents = state.session.entities;
-  $('#stats').innerHTML = Object.keys(ents).map((k) => `
-    <a class="card stat" href="${k === 'consultants' ? '#/consulting/consultants' : `#/records/${k}`}"><span class="muted small">${esc(ents[k].label)}</span><span class="num">${counts[k]}</span></a>`).join('') + `
-    <a class="card stat" href="#/letters"><span class="muted small">إصدار الخطابات</span><span class="small">نماذج ${esc(state.company.name_ar)} المعتمدة</span></a>`;
+  const [h] = await Promise.all([api('/api/home')]);
+  const u = state.session.user;
+  const firstName = h.greeting_name || String(u.display_name || '').split(' ')[0];
+  const n = h.counts;
+  const WHEN = { late: ['var(--red)', 'متأخرة'], today: ['var(--amber)', 'اليوم'], week: ['var(--muted)', 'هذا الأسبوع'], later: ['var(--border)', 'لاحقًا'] };
+  const taskRows = (list) => (list.length ? list.map((t) => `<a class="home-row" href="${t.link}" style="--c:${WHEN[t.when][0]}"><span class="bar"></span>
+      <div><div class="t">${esc(t.title)}</div><div class="s">${esc(t.sub)}${t.date ? ` · ${esc(t.date.split('-').reverse().join('/'))}` : ''}</div></div><span class="go">${esc(t.action)}</span></a>`).join('')
+    : '<div class="home-row"><span class="muted small">لا توجد مهام هنا. 👌</span></div>');
+  const prog = (p) => (p && p.total ? `${p.finished} من ${p.total} خطوات` : '');
+  const sumLine = [n.tasks_today ? `<b>${n.tasks_today} ${n.tasks_today === 1 ? 'مهمة' : 'مهام'}</b> تحتاج انتباهك اليوم` : 'لا توجد مهام عاجلة اليوم',
+    n.starters_upcoming > 0 ? `و<b>${n.starters_upcoming}</b> يباشرون خلال الأيام القادمة` : ''].filter(Boolean).join('، ');
+  const q = (href, label, ico, main_ = false) => `<a href="${href}" ${main_ ? 'class="main"' : ''}>${icon(ico)}${label}</a>`;
+
+  main.innerHTML = `<div class="home">
+    <div class="home-hello"><h1 id="greet">${greeting()}، ${esc(firstName)}</h1>
+      <p class="when">${esc(todayLine())} · ${esc(state.company.name_ar)}</p><p class="sum">${sumLine}.</p></div>
+    <nav class="home-quick" aria-label="إجراءات سريعة">
+      ${q('#/procedures/new', 'موظف جديد', 'employees', true)}${q('#/letters', 'إصدار خطاب', 'letters')}${q('#/air-tickets', 'صرف تذكرة', 'air-tickets')}
+      ${q('#/attestations', 'تسجيل تصديق', 'attestations')}${q('#/consulting/contracts', 'العقود الاستشارية', 'consulting')}${q('#/reports', 'التقارير', 'reports')}
+    </nav>
+    <h2>هذا الشهر <small>${MONTHS_AR[Number(h.month.from.slice(5, 7)) - 1]}</small></h2>
+    <section class="home-nums">
+      <a href="#starters"><div class="l">يباشرون هذا الشهر</div><div class="v">${n.starters}</div><div class="s">${n.starters_started} باشروا · ${n.starters - n.starters_started} لم تُؤكَّد مباشرتهم بعد</div></a>
+      <a href="#leavers"><div class="l">تنتهي خدماتهم</div><div class="v">${n.leavers}</div><div class="s">${h.leavers[0] ? `أقربها ${esc(h.leavers[0].last_day.split('-').reverse().join('/'))}` : 'لا يوجد'}</div></a>
+      <a href="#/air-tickets"><div class="l">تذاكر مستحقة</div><div class="v">${n.tickets_due}</div><div class="s">تستحق خلال الشهر</div></a>
+      <a href="#/consulting/deliverables"><div class="l">مخرجات استشارية مستحقة</div><div class="v">${n.deliverables_due}</div><div class="s">${n.deliverables_late ? `${n.deliverables_late} متأخر` : 'لا يوجد متأخر'}</div></a>
+    </section>
+    <section class="home-cols">
+      <div>
+        <h2>مهام للإجراء <small>${h.tasks.length} مهمة</small></h2>
+        <div class="home-tabs" id="task-tabs">
+          ${[['all', 'الكل', h.tasks.length], ['late', 'متأخرة', h.tasks.filter((t) => t.when === 'late').length], ['today', 'اليوم', h.tasks.filter((t) => t.when === 'today').length], ['week', 'هذا الأسبوع', h.tasks.filter((t) => t.when === 'week').length]]
+            .map(([k, l, c], i) => `<button type="button" data-when="${k}" class="${i ? '' : 'on'}">${l} ${c}</button>`).join('')}
+        </div>
+        <div class="home-list" id="task-list">${taskRows(h.tasks)}</div>
+      </div>
+      <div>
+        <div class="maha" aria-label="مها">
+          <div class="maha-head"><div class="maha-av">م</div><div><b>مها</b><span>الموظفة الرقمية · الدعم والمساعدة</span></div><em>قريبًا</em></div>
+          <p class="maha-msg">أهلًا ${esc(firstName)}! أنا مها 👋 قريبًا تقدر تسألني عن أي شيء في المنصة.</p>
+          <div class="maha-chips"><span>كيف أصدر خطاب تعريف؟</span><span>المخرجات المستحقة خلال ٣٠ يومًا</span><span>من يباشر هذا الأسبوع؟</span></div>
+          <div class="maha-input">اكتب سؤالك لمها… <span class="small">قريبًا</span></div>
+        </div>
+        <h2 id="starters">المباشرون هذا الشهر<a href="#/procedures/cases">الكل</a></h2>
+        <div class="home-list">${h.starters.length ? h.starters.map((s) => `<a class="home-row" href="${s.case_id ? `#/procedures/case/${s.case_id}` : '#/records/employees'}">${dayBox(s.hire_date)}
+          <div><div class="t">${esc(s.full_name_ar)}</div><div class="s">${esc([s.job_title, prog(s.progress)].filter(Boolean).join(' · ') || '—')}</div></div>
+          <span class="tag ${s.started ? 'ok' : ''}">${s.started ? 'باشر' : s.awaiting_confirmation ? 'بانتظار التأكيد' : 'قادم'}</span></a>`).join('') : '<div class="home-row"><span class="muted small">لا يوجد مباشرون هذا الشهر.</span></div>'}</div>
+        <h2 id="leavers" style="margin-top:22px">تنتهي خدماتهم هذا الشهر</h2>
+        <div class="home-list">${h.leavers.length ? h.leavers.map((s) => `<a class="home-row" href="${s.case_id ? `#/procedures/case/${s.case_id}` : '#/records/employees'}">${dayBox(s.last_day)}
+          <div><div class="t">${esc(s.full_name_ar)}</div><div class="s">${esc([s.job_title, prog(s.progress)].filter(Boolean).join(' · ') || '—')}</div></div>
+          <span class="tag">${s.status === 'inactive' ? 'انتهت' : 'قيد الإنهاء'}</span></a>`).join('') : '<div class="home-row"><span class="muted small">لا يوجد.</span></div>'}</div>
+      </div>
+    </section>
+    <details class="home-more"><summary>تفاصيل الأدوات (العقود، التصديقات، التذاكر، الإجراءات)</summary><div id="home-tools"></div></details>
+  </div>`;
+  $$('#task-tabs button').forEach((b) => b.addEventListener('click', () => {
+    $$('#task-tabs button').forEach((x) => x.classList.toggle('on', x === b));
+    $('#task-list').innerHTML = taskRows(b.dataset.when === 'all' ? h.tasks : h.tasks.filter((t) => t.when === b.dataset.when));
+  }));
+  $$('.home-nums a[href^="#starters"], .home-nums a[href^="#leavers"]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); document.getElementById(a.getAttribute('href').slice(1))?.scrollIntoView({ behavior: 'smooth' }); }));
+  clearInterval(greetTimer);
+  greetTimer = setInterval(() => { const g = document.getElementById('greet'); if (!g) return clearInterval(greetTimer); g.textContent = `${greeting()}، ${firstName}`; }, 60000);
+  // the tools' own dashboards stay available, folded, and load only when opened
+  const more = $('.home-more');
+  more.addEventListener('toggle', async () => {
+    if (!more.open || more.dataset.loaded) return;
+    more.dataset.loaded = '1';
+    await toolDashboards($('#home-tools'));
+  });
+}
+
+async function toolDashboards(main) {
   const follow = document.createElement('div');
   main.appendChild(follow);
   await cc().dashboardSection(follow);

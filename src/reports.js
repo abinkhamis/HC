@@ -204,7 +204,7 @@ export function printPage(title, subtitle, sections, brand = '#3d4654') {
   return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
 @page { size: A4; margin: 14mm 12mm; }
-body { font-family: 'DIN Next LT Arabic', 'Itf Huwiya Arabic', 'Segoe UI', Tahoma, sans-serif; color: #222; margin: 0; padding: 24px; font-size: 12.5px; }
+body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #222; margin: 0; padding: 24px; font-size: 12.5px; }
 header { border-bottom: 3px solid ${esc(brand)}; padding-bottom: 10px; margin-bottom: 16px; }
 h1 { font-size: 20px; margin: 0; color: ${esc(brand)}; } .sub { color: #666; margin-top: 4px; }
 h2 { font-size: 15px; margin: 20px 0 8px; color: ${esc(brand)}; }

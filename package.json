@@ -8,6 +8,6 @@
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/server.js",
     "seed": "node --disable-warning=ExperimentalWarning src/seed.js",
-    "test": "node --disable-warning=ExperimentalWarning --test test/isolation.test.js test/letters.test.js test/consulting.test.js test/attestations.test.js test/airtickets.test.js test/procedures.test.js test/procedures-onboarding.test.js test/consulting-hub.test.js test/template-mapping.test.js test/platform.test.js test/employee-identity.test.js test/accounts.test.js test/reports.test.js"
+    "test": "node --disable-warning=ExperimentalWarning --test test/isolation.test.js test/letters.test.js test/consulting.test.js test/attestations.test.js test/airtickets.test.js test/procedures.test.js test/procedures-onboarding.test.js test/consulting-hub.test.js test/template-mapping.test.js test/platform.test.js test/employee-identity.test.js test/accounts.test.js test/reports.test.js test/home.test.js"
   }
 }
