@@ -1005,11 +1005,30 @@ const ADMIN_VIEWS = {
   async users(main) {
     const users = await api('/api/admin/users');
     main.innerHTML = workspaceHead('المستخدمون') + `
-      <div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>الشركات المتاحة</th></tr></thead><tbody>
-        ${users.map((u) => `<tr><td class="ltr">${esc(u.username)}</td><td>${esc(u.display_name)}</td>
+      <p class="small muted" style="margin:-4px 0 12px">حسابات الموظفين الشخصية تُنشأ من «فريق الإدارة». هنا يمكن إيقاف أي حساب فريق — ومنها الحساب المشترك — أو إنشاء كلمة مرور مؤقتة جديدة له.</p>
+      <div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>الشركات المتاحة</th><th>الحالة</th><th></th></tr></thead><tbody>
+        ${users.map((u) => `<tr style="${u.is_active ? '' : 'opacity:.6'}"><td class="ltr">${esc(u.username)}</td><td>${esc(u.display_name)}</td>
           <td>${u.role === 'admin' ? '<span class="role-badge admin">مسؤول — إدارة الهوية والقوالب</span>' : '<span class="role-badge">الفريق — استخدام الأدوات فقط</span>'}</td>
-          <td>${u.role === 'admin' ? 'جميع الشركات' : esc(u.companies || '—')}</td></tr>`).join('')}
+          <td>${u.role === 'admin' ? 'جميع الشركات' : esc(u.companies || '—')}</td>
+          <td>${u.is_active ? '<span class="pill ok">مفعّل</span>' : '<span class="pill">موقوف</span>'}</td>
+          <td class="row" style="justify-content:flex-end">${u.role === 'admin' ? '<span class="small muted">غيّر كلمة مرورك من زر «كلمة المرور» أعلى الصفحة</span>'
+            : `<button class="btn small" data-u-reset="${u.id}">كلمة مرور مؤقتة جديدة</button><button class="btn small" data-u-active="${u.id}" data-on="${u.is_active ? 1 : 0}">${u.is_active ? 'إيقاف' : 'تفعيل'}</button>`}</td></tr>`).join('')}
       </tbody></table></div>`;
+    $$('[data-u-active]').forEach((b) => b.addEventListener('click', async () => {
+      const on = b.dataset.on === '1';
+      if (on && !confirm('إيقاف هذا الحساب؟ يُخرج من المنصة فورًا ولا يستطيع الدخول حتى تفعيله. سجلاته تبقى كما هي.')) return;
+      try { await api(`/api/admin/users/${b.dataset.uActive}/active`, { method: 'POST', body: { is_active: !on } }); ADMIN_VIEWS.users(main); } catch (err) { toast(err.message, 'error'); }
+    }));
+    $$('[data-u-reset]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('إنشاء كلمة مرور مؤقتة جديدة؟ تتوقف كلمة المرور الحالية ويُخرج صاحب الحساب.')) return;
+      try {
+        const r = await api(`/api/admin/users/${b.dataset.uReset}/reset-password`, { method: 'POST' });
+        const d = openModal('كلمة مرور مؤقتة جديدة', `<p>سلّمها لصاحب الحساب؛ سيُطلب منه تغييرها عند الدخول. <b>لن تظهر مرة أخرى.</b></p>
+          <dl class="kv"><dt>اسم المستخدم</dt><dd class="ltr">${esc(r.username)}</dd><dt>كلمة المرور المؤقتة</dt><dd class="ltr" style="font-size:18px"><b>${esc(r.temporary_password)}</b></dd></dl>`,
+          '<button class="btn primary" type="button" data-close>تم</button>');
+        $('[data-close]', d).addEventListener('click', () => d.close());
+      } catch (err) { toast(err.message, 'error'); }
+    }));
   },
 };
 

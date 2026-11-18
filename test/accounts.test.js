@@ -146,3 +146,21 @@ test('the Admin can rename a company; the team cannot; a name cannot be empty', 
   assert.deepEqual([after.name_ar, after.name_en, after.code], ['اسم جديد للشركة', 'New Company Name', before.code], 'the code never changes');
   ok(await admin('PATCH', `/api/admin/companies/${B}`, { name_ar: before.name_ar }));
 });
+
+test('repeated wrong passwords lock the name for a while; a secure cookie over HTTPS', async () => {
+  const tryLogin = (username, password, headers = {}) => fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'hub', ...headers }, body: JSON.stringify({ username, password }) });
+  for (let i = 0; i < 5; i++) assert.equal((await tryLogin('sara.test', 'wrong-' + i)).status, 401);
+  const locked = await tryLogin('sara.test', saraPw);
+  assert.equal(locked.status, 429, 'even the right password waits while locked');
+  assert.equal((await locked.json()).code, 'login_locked');
+  // another address is not locked by these attempts (only 5 < the per-name limit)
+  const other = await tryLogin('sara.test', saraPw, { 'X-Forwarded-For': '203.0.113.9' });
+  assert.equal(other.status, 200);
+  // behind an HTTPS proxy the session cookie is Secure and HSTS is sent
+  const https = await tryLogin('admin', creds.admin, { 'X-Forwarded-Proto': 'https', 'X-Forwarded-For': '203.0.113.10' });
+  assert.equal(https.status, 200);
+  assert.match(https.headers.get('set-cookie'), /; Secure/);
+  assert.match(https.headers.get('strict-transport-security') || '', /max-age=/);
+  const plain = await tryLogin('admin', creds.admin, { 'X-Forwarded-For': '203.0.113.11' });
+  assert.doesNotMatch(plain.headers.get('set-cookie'), /Secure/);
+});

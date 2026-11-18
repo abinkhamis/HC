@@ -21,6 +21,7 @@ import { createEmployeeImport } from './employee-import.js';
 import { createAccounts } from './accounts.js';
 import { createReports, printPage, htmlTable, escHtml, fmtDate } from './reports.js';
 import { createHome } from './home.js';
+import { createLoginGuard, clientIp, isHttps } from './login-guard.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -52,6 +53,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   const accounts = createAccounts(db);
   const reports = createReports(db);
   const home = createHome(db, { airTickets });
+  const loginGuard = createLoginGuard();
   const templateFlow = createTemplateWorkflow(db, storageDir);
 
   // opts: { auth = true, admin = false, tenant = false }
@@ -93,16 +95,24 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   route('POST', '/api/login', { auth: false }, ({ body, req, res }) => {
     // Spaces around the name or password (common when copying from INITIAL_CREDENTIALS.txt) are ignored;
     // platform passwords are generated from letters, digits, '-' and '_' and never contain spaces.
-    const u = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(String(body?.username || '').trim());
-    if (!u || !auth.verifyPassword(String(body?.password || '').trim(), u.password_hash)) throw new HttpError(401, 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+    const name = String(body?.username || '').trim().toLowerCase();
+    const ip = clientIp(req);
+    const wait = loginGuard.lockedFor(ip, name);
+    if (wait) throw new HttpError(429, `محاولات دخول خاطئة كثيرة. حاول مرة أخرى بعد ${wait} دقيقة.`, 'login_locked');
+    const u = db.prepare('SELECT * FROM users WHERE username = ? AND is_active = 1').get(name);
+    if (!u || !auth.verifyPassword(String(body?.password || '').trim(), u.password_hash)) {
+      loginGuard.failed(ip, name);
+      throw new HttpError(401, 'اسم المستخدم أو كلمة المرور غير صحيحة.');
+    }
+    loginGuard.succeeded(ip, name);
     const sid = auth.createSession(db, u.id);
-    res.setHeader('Set-Cookie', `${cookieName(req)}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${12 * 3600}`);
+    res.setHeader('Set-Cookie', `${cookieName(req)}=${sid}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${12 * 3600}${isHttps(req) ? '; Secure' : ''}`);
     return { ok: true };
   });
 
   route('POST', '/api/logout', { allowPasswordChange: true }, ({ session, req, res }) => {
     auth.destroySession(db, session.id);
-    res.setHeader('Set-Cookie', `${cookieName(req)}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    res.setHeader('Set-Cookie', `${cookieName(req)}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${isHttps(req) ? '; Secure' : ''}`);
     return { ok: true };
   });
 
@@ -606,6 +616,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   const cookieName = (req) => `hub_sid_${(String(req.headers.host || '').match(/:(\d+)$/) || [, '80'])[1]}`;
 
   async function handle(req, res) {
+    if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     const url = new URL(req.url, 'http://localhost');
     if (!url.pathname.startsWith('/api/')) return serveStatic(req, res, url.pathname);
 
