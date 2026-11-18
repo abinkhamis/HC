@@ -814,6 +814,10 @@ END;`,
 
 // Additive migrations: columns added after the first release.
 const ADDED_COLUMNS = {
+  // department staff who can be made responsible for tasks (job title optional)
+  proc_team_members: { job_title: 'TEXT', user_id: 'INTEGER REFERENCES users (id)' },
+  // a temporary password (new account / reset by the Admin) must be changed at the next login
+  users: { must_change_password: 'INTEGER NOT NULL DEFAULT 0' },
   employees: {
     gender: 'TEXT', nationality_ar: 'TEXT', nationality_en: 'TEXT', job_title_en: 'TEXT', end_date: 'TEXT',
     basic_salary: 'REAL', housing_allowance: 'REAL', transport_allowance: 'REAL', other_allowance: 'REAL',
@@ -843,6 +847,7 @@ SELECT d.*, COALESCE((SELECT SUM(p.amount) FROM deliverable_payments p
 FROM contract_deliverables d;`);
   addStepOwners(db);
   employeeIdentityRules(db);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_team_member_user ON proc_team_members (company_id, user_id) WHERE user_id IS NOT NULL`);
   // Document kinds used by the consulting tool (templates are uploaded per company by the Admin).
   const docTypes = [
     ['consulting_contract', 'عقد خدمات استشارية', 'Consulting Services Contract', 'contract'],

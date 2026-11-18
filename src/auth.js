@@ -27,7 +27,7 @@ export function createSession(db, userId) {
 export function loadSession(db, id) {
   if (!id) return null;
   const row = db.prepare(`
-    SELECT s.id, s.company_id, u.id AS user_id, u.username, u.display_name, u.role
+    SELECT s.id, s.company_id, u.id AS user_id, u.username, u.display_name, u.role, u.must_change_password
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.id = ? AND s.expires_at > datetime('now') AND u.is_active = 1`).get(id);
   if (!row) return null;
@@ -35,7 +35,7 @@ export function loadSession(db, id) {
   return {
     id: row.id,
     companyId: row.company_id,
-    user: { id: row.user_id, username: row.username, display_name: row.display_name, role: row.role },
+    user: { id: row.user_id, username: row.username, display_name: row.display_name, role: row.role, must_change_password: !!row.must_change_password },
   };
 }
 

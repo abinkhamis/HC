@@ -339,7 +339,7 @@ export function createProcedureViews(ctx) {
           <label class="field"><span>${esc(s.reference_label || 'المرجع')}</span><input type="text" name="reference" value="${esc(s.reference || '')}"></label>
           <label class="field full"><span>ملاحظات</span><textarea name="notes">${esc(s.notes || '')}</textarea></label>
         </div>
-        ${!lists.members.length ? `<p class="small muted" style="margin:0">قائمة أعضاء الفريق فارغة${isAdmin() ? ' — أضفهم من «القوائم والإعدادات»' : ' — يضيفها المسؤول'}.</p>` : ''}
+        ${!lists.members.length ? `<p class="small muted" style="margin:0">قائمة أعضاء الفريق فارغة${isAdmin() ? ' — <a href="#/admin/team">أضفهم من «فريق الإدارة»</a>' : ' — يضيفها المسؤول'}.</p>` : ''}
         ${!lists.party.length ? `<p class="small muted" style="margin:0">قائمة الجهات المسؤولة فارغة${isAdmin() ? ' — أضفها من «القوائم والإعدادات»' : ' — يضيفها المسؤول'}.</p>` : ''}
         ${letterBox}
         ${s.updated_by_name ? `<p class="small muted" style="margin:0">آخر تحديث: ${esc(s.updated_by_name)} — <span class="ltr">${esc(fmtTime(s.updated_at))}</span></p>` : ''}
@@ -408,7 +408,7 @@ export function createProcedureViews(ctx) {
               ${isAdmin() ? '<button class="btn" id="reopen-case">إعادة فتح الحالة</button>' : '<p class="small muted" style="margin:0">إعادة الفتح متاحة للمسؤول.</p>'}`}
           ${isAdmin() ? '<button class="btn" id="delete-case">حذف الحالة</button>' : ''}</div>
       </div>
-      <div class="card stack" style="margin-bottom:16px"><div class="spread"><h3>الإجراءات</h3>${open && !members.length ? `<span class="small muted">لا يوجد أعضاء فريق لتعيينهم${isAdmin() ? ' — <a href="#/procedures/settings">أضفهم</a>' : ' — يضيفهم المسؤول'}</span>` : ''}</div><div class="table-wrap"><table><thead><tr><th>الإجراء</th><th>الحالة</th><th>المسؤول</th><th>الجهة / المنفذ</th><th>المهلة</th><th>التاريخ</th><th>المرجع / ملاحظات</th><th></th></tr></thead><tbody>
+      <div class="card stack" style="margin-bottom:16px"><div class="spread"><h3>الإجراءات</h3>${open && !members.length ? `<span class="small muted">لا يوجد أعضاء فريق لتعيينهم${isAdmin() ? ' — <a href="#/admin/team">أضفهم من «فريق الإدارة»</a>' : ' — يضيفهم المسؤول'}</span>` : ''}</div><div class="table-wrap"><table><thead><tr><th>الإجراء</th><th>الحالة</th><th>المسؤول</th><th>الجهة / المنفذ</th><th>المهلة</th><th>التاريخ</th><th>المرجع / ملاحظات</th><th></th></tr></thead><tbody>
         ${c.steps.map((s) => `<tr data-step="${s.id}"><td class="clickable" data-open><b>${esc(s.name_ar)}</b>${s.checklist_step_id ? '' : ' <span class="muted small">(إضافي)</span>'}${s.letter_type_id ? ` <span class="pill off">مستند</span>` : ''}</td>
           <td>${open ? `<select data-quick-status aria-label="حالة ${esc(s.name_ar)}" style="min-width:110px">${Object.entries(m.step_status).map(([k, v]) => `<option value="${k}" ${k === s.status ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>` : pill(STEP_PILL[s.status], m.step_status[s.status])}${s.status === 'na' ? `<div class="small muted" style="white-space:normal">${esc(s.na_reason_label || s.na_reason || '')}</div>` : ''}</td>
           <td>${open ? `<select data-quick-owner aria-label="مسؤول ${esc(s.name_ar)}" style="min-width:110px"><option value="">—</option>${members.filter((x) => x.is_active || x.id === s.owner_member_id).map((x) => `<option value="${x.id}" ${x.id === s.owner_member_id ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : esc(s.owner_name || '—')}</td>
@@ -508,7 +508,7 @@ export function createProcedureViews(ctx) {
       ${['onboarding', 'offboarding'].map((type) => `<div class="card stack" style="margin-bottom:16px"><div class="spread"><h2>إجراءات ${esc(m.case_types[type])}</h2>${admin ? `<button class="btn small primary" data-new-step="${type}">+ إجراء</button>` : ''}</div>
         <div class="table-wrap"><table><thead><tr><th>الترتيب</th><th>الإجراء</th><th>ينطبق على</th><th>المهلة</th><th>مستند مرتبط</th>${admin ? '<th></th>' : ''}</tr></thead><tbody>${stepRows(type)}</tbody></table></div></div>`).join('')}
       <div class="grid cols-2">
-        <div class="card stack"><div class="spread"><h3>أعضاء الفريق (المسؤولون عن الإجراءات)</h3>${admin ? '<button class="btn small" id="add-member">+ إضافة</button>' : ''}</div>
+        <div class="card stack"><div class="spread"><h3>أعضاء الفريق (المسؤولون عن الإجراءات) <a class="small" href="#/admin/team" style="font-weight:400">إدارة الفريق</a></h3>${admin ? '<button class="btn small" id="add-member">+ إضافة</button>' : ''}</div>
           ${lists.members.length ? lists.members.map((x) => `<div class="spread small" style="${x.is_active ? '' : 'opacity:.55'}"><span>${esc(x.name)}${x.is_active ? '' : ' (موقوف)'}</span>
             ${admin ? `<span><button class="btn small" data-mrename="${x.id}">تعديل</button> <button class="btn small" data-mtoggle="${x.id}" data-active="${x.is_active}">${x.is_active ? 'إيقاف' : 'تفعيل'}</button></span>` : ''}</div>`).join('') : '<span class="muted small">القائمة فارغة.</span>'}</div>
         ${['party', 'project', 'offboarding_reason', 'support_reason'].map(listBox).join('')}</div>`;

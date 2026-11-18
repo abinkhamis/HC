@@ -122,7 +122,11 @@ export function createProcedureService(db) {
     ensureDefaults(company);
     const rows = db.prepare('SELECT * FROM proc_lists WHERE company_id = ? ORDER BY list, sort, id').all(company.id);
     const out = Object.fromEntries(Object.keys(LISTS).map((k) => [k, rows.filter((r) => r.list === k)]));
-    out.members = db.prepare('SELECT * FROM proc_team_members WHERE company_id = ? ORDER BY sort, name').all(company.id);
+    // open_tasks: steps of open cases still waiting, assigned to this person
+    out.members = db.prepare(`SELECT m.*, u.username, u.is_active AS account_active, u.role AS account_role, (SELECT COUNT(*) FROM proc_case_steps s JOIN proc_cases c ON c.company_id = s.company_id AND c.id = s.case_id
+                                             WHERE s.company_id = m.company_id AND s.owner_member_id = m.id AND c.status = 'open'
+                                               AND s.status IN ('pending', 'in_progress')) AS open_tasks
+                              FROM proc_team_members m LEFT JOIN users u ON u.id = m.user_id WHERE m.company_id = ? ORDER BY m.sort, m.name`).all(company.id);
     return out;
   }
 
@@ -132,7 +136,7 @@ export function createProcedureService(db) {
     if (!name) throw new HttpError(400, 'اسم عضو الفريق مطلوب.');
     if (db.prepare('SELECT 1 FROM proc_team_members WHERE company_id = ? AND name = ?').get(company.id, name)) throw new HttpError(409, 'هذا الاسم موجود في قائمة الفريق.');
     const sort = (db.prepare('SELECT MAX(sort) m FROM proc_team_members WHERE company_id = ?').get(company.id).m || 0) + 10;
-    db.prepare('INSERT INTO proc_team_members (company_id, name, sort) VALUES (?, ?, ?)').run(company.id, name, sort);
+    db.prepare('INSERT INTO proc_team_members (company_id, name, sort, job_title) VALUES (?, ?, ?, ?)').run(company.id, name, sort, str(input?.job_title, 200) || null);
     log(company.id, null, null, 'member_added', name, null, userId);
     return lists(company);
   }
@@ -142,6 +146,7 @@ export function createProcedureService(db) {
     const set = {};
     if (input?.name !== undefined) { set.name = str(input.name, 200); if (!set.name) throw new HttpError(400, 'الاسم مطلوب.'); }
     if (input?.is_active !== undefined) set.is_active = input.is_active ? 1 : 0;
+    if (input?.job_title !== undefined) set.job_title = str(input.job_title, 200) || null;
     const changes = Object.fromEntries(Object.entries(set).filter(([k, v]) => r[k] !== v).map(([k, v]) => [k, [r[k], v]]));
     if (!Object.keys(changes).length) return lists(company);
     try {

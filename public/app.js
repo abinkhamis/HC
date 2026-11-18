@@ -8,6 +8,7 @@ import { createAirTicketViews } from './airtickets.js';
 import { createProcedureViews } from './procedures.js';
 import { createTemplateMappingUI } from './template-mapping.js';
 import { createEmployeeViews } from './employees.js';
+import { createReportViews } from './reports.js';
 
 const state = { session: null, company: null };
 const app = document.getElementById('app');
@@ -47,6 +48,7 @@ async function api(path, { method = 'GET', body, raw = false } = {}) {
   if (res.ok) return raw ? res : res.json();
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { state.session = null; renderLogin(); throw new ApiError(401, data); }
+  if (data.code === 'password_change_required') { await loadSession(); renderShell(); throw new ApiError(403, data); }
   if (data.code === 'company_changed') {
     toast('تم تغيير الشركة المختارة من نافذة أخرى، تم تحديث العرض.');
     await loadSession();
@@ -102,6 +104,7 @@ const ICONS = {
   attestations: '<circle cx="12" cy="10" r="6"/><path d="M9 10l2 2 4-4M8.5 15.5L7 22l5-3 5 3-1.5-6.5"/>',
   bank_accounts: '<path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/>',
   attestations: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><circle cx="12" cy="14" r="3"/><path d="M10.5 16.5 9.5 20l2.5-1 2.5 1-1-3.5"/>',
+  reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   procedures: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4M9 17h6"/>',
   'air-tickets': '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
   consulting: '<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h4"/><path d="M14 3v5h5"/>',
@@ -184,10 +187,12 @@ function navItems() {
     { href: '#/air-tickets', key: 'air-tickets', label: 'تذاكر الطيران' },
     { href: '#/attestations', key: 'attestations', label: 'تصديقات الغرفة التجارية' },
     { href: '#/letters', key: 'letters', label: 'إصدار الخطابات' },
+    { href: '#/reports', key: 'reports', label: 'التقارير' },
   ];
   if (isAdmin()) {
     items.push(
       { section: 'الإدارة' },
+      { href: '#/admin/team', key: 'employees', label: 'فريق الإدارة' },
       { href: '#/admin/branding', key: 'brand', label: 'هوية الشركة' },
       { href: '#/admin/templates', key: 'template', label: 'نماذج المستندات' },
       { href: '#/admin/assets', key: 'stamp', label: 'التواقيع والأختام' },
@@ -215,8 +220,42 @@ function switcherHtml() {
     </div></div>`;
 }
 
+// Change own password. forced = after a temporary password (nothing else is allowed until it is changed).
+function passwordForm(forced) {
+  const body = `${forced ? '<p class="notice small" style="margin:0 0 12px">هذه كلمة مرور مؤقتة. اختر كلمة مرور خاصة بك للمتابعة.</p>' : ''}
+    <form id="pw-form" class="stack">
+      <label class="field">كلمة المرور الحالية${forced ? ' (المؤقتة)' : ''}<input type="password" name="current" dir="ltr" autocomplete="current-password" required></label>
+      <label class="field">كلمة المرور الجديدة<input type="password" name="next" dir="ltr" autocomplete="new-password" minlength="10" required></label>
+      <label class="field">تأكيد كلمة المرور الجديدة<input type="password" name="again" dir="ltr" autocomplete="new-password" required></label>
+      <label class="small muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="pw-show"> إظهار كلمات المرور</label>
+      <p class="small muted" style="margin:0">١٠ أحرف على الأقل، فيها حروف إنجليزية وأرقام.</p>
+      <p class="error-text" id="pw-err" hidden></p>
+      <button class="btn primary" type="submit">حفظ كلمة المرور</button>
+    </form>`;
+  return body;
+}
+function bindPasswordForm(root, onDone) {
+  $('#pw-show', root).addEventListener('change', (e) => $$('input[type=password], input[data-pw]', root).forEach((i) => { i.dataset.pw = 1; i.type = e.target.checked ? 'text' : 'password'; }));
+  $('#pw-form', root).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target; const err = $('#pw-err', root);
+    if (f.next.value !== f.again.value) { err.textContent = 'كلمتا المرور الجديدتان غير متطابقتين.'; err.hidden = false; return; }
+    try { await api('/api/account/password', { method: 'POST', body: { current_password: f.current.value, new_password: f.next.value } }); onDone(); }
+    catch (x) { err.textContent = x.message; err.hidden = false; }
+  });
+}
+function renderForcedPassword() {
+  applyBrand(null);
+  app.innerHTML = `<div class="login-wrap"><div class="card login-card stack" id="pw-card"><div><h1>مرحبًا ${esc(state.session.user.display_name)}</h1>
+    <p class="muted small" style="margin:0">اسم المستخدم: <span dir="ltr">${esc(state.session.user.username)}</span></p></div>${passwordForm(true)}
+    <button class="btn small" id="pw-logout" type="button">خروج</button></div></div>`;
+  bindPasswordForm($('#pw-card'), async () => { await loadSession(); renderShell(); toast('تم حفظ كلمة المرور الجديدة'); });
+  $('#pw-logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }); state.session = null; renderLogin(); });
+}
+
 function renderShell() {
   if (!state.session) return renderLogin();
+  if (state.session.user.must_change_password) return renderForcedPassword();
   const u = state.session.user;
   app.innerHTML = `
     <header class="topbar">
@@ -229,6 +268,7 @@ function renderShell() {
         <div class="user-block">
           <span class="small">${esc(u.display_name)}</span>
           <span class="role-badge ${u.role === 'admin' ? 'admin' : ''}">${u.role === 'admin' ? 'مسؤول' : 'الفريق'}</span>
+          <button class="btn small" id="my-pw" type="button">كلمة المرور</button>
           <button class="btn small" id="logout" type="button">خروج</button>
         </div>
       </div>
@@ -244,6 +284,7 @@ function renderShell() {
   $$('.switch-opt').forEach((b) => b.addEventListener('click', () => switchCompany(Number(b.dataset.company)).catch((e) => toast(e.message, 'error'))));
   $('#co-select')?.addEventListener('change', (e) => switchCompany(Number(e.target.value)).catch((err) => toast(err.message, 'error')));
   $('#logout').addEventListener('click', async () => { await api('/api/logout', { method: 'POST' }); state.session = null; state.company = null; renderLogin(); });
+  $('#my-pw').addEventListener('click', () => { const d = openModal('تغيير كلمة المرور', passwordForm(false), ''); bindPasswordForm(d, () => { d.close(); toast('تم حفظ كلمة المرور الجديدة. أُخرجت الأجهزة الأخرى من حسابك.'); }); });
   renderRoute();
 }
 
@@ -253,7 +294,7 @@ function renderRoute() {
   const main = $('#main');
   if (!main) return;
   const [a, b, c] = routeParts();
-  $$('.nav a').forEach((el) => { const h = el.getAttribute('href'); el.classList.toggle('active', h === '#/' + [a, b].filter(Boolean).join('/') || ((a === 'contracts' || a === 'consulting' || (a === 'records' && b === 'consultants')) && h === '#/consulting') || (a === 'attestations' && h === '#/attestations') || (a === 'air-tickets' && h === '#/air-tickets') || (a === 'procedures' && h === '#/procedures') || (!a && h === '#/')); });
+  $$('.nav a').forEach((el) => { const h = el.getAttribute('href'); el.classList.toggle('active', h === '#/' + [a, b].filter(Boolean).join('/') || ((a === 'contracts' || a === 'consulting' || (a === 'records' && b === 'consultants')) && h === '#/consulting') || (a === 'attestations' && h === '#/attestations') || (a === 'air-tickets' && h === '#/air-tickets') || (a === 'procedures' && h === '#/procedures') || (a === 'reports' && h === '#/reports') || (!a && h === '#/')); });
   if (!state.company) { main.innerHTML = '<div class="card empty">لا توجد شركة متاحة لحسابك. تواصل مع مسؤول النظام.</div>'; return; }
   const view =
     !a ? viewDashboard :
@@ -266,6 +307,7 @@ function renderRoute() {
     a === 'attestations' ? () => av().view(main, b) :
     a === 'air-tickets' ? () => tv().view(main, b, c) :
     a === 'procedures' ? () => pv().view(main, b, c) :
+    a === 'reports' ? () => rv().view(main, b) :
     a === 'admin' ? (isAdmin() ? ADMIN_VIEWS[b] : () => (main.innerHTML = '<div class="card empty">هذه الصفحة متاحة لحساب المسؤول فقط.</div>')) :
     null;
   if (!view) { main.innerHTML = '<div class="card empty">الصفحة غير موجودة.</div>'; return; }
@@ -311,6 +353,8 @@ let airViews;
 let procViews;
 let tmUI;
 let empViews;
+let repViews;
+const rv = () => (repViews ||= createReportViews({ api, esc, $, $$, toast, workspaceHead, download, state }));
 const ev = () => (empViews ||= createEmployeeViews({ api, esc, $, $$, toast, openModal, workspaceHead, companyBanner, fmtTime, openRecordForm, state, fileToUpload }));
 const tm = () => (tmUI ||= createTemplateMappingUI({ api, esc, $, $$, toast, openModal, companyBanner, download, fmtTime }));
 const pv = () => (procViews ||= createProcedureViews({ api, esc, $, $$, toast, openModal, workspaceHead, companyBanner, download, fmtTime, state }));
@@ -547,6 +591,114 @@ async function viewLetters(main) {
 
 // ---------- admin views ----------
 const ADMIN_VIEWS = {
+  // Department staff (per company) who can be made responsible for tasks — the same list feeds
+  // the «المسؤول» choice in employee procedures (and any later tool that assigns a person).
+  async team(main) {
+    const [members, users] = await Promise.all([api('/api/procedures/lists').then((l) => l.members), api('/api/admin/users')]);
+    const active = members.filter((m) => m.is_active);
+    const me = state.session.user;
+    const linkedIds = new Set(members.filter((m) => m.user_id).map((m) => m.user_id));
+    const accountCell = (m) => {
+      if (!m.user_id) return `<span class="muted small">لا يوجد</span>
+        <div class="row" style="margin-top:4px"><button class="btn small primary" data-acc-new="${m.id}">إنشاء حساب</button><button class="btn small" data-acc-link="${m.id}">ربط بحساب موجود</button></div>`;
+      const isMe = m.user_id === me.id;
+      return `<span class="ltr">${esc(m.username)}</span> ${m.account_role === 'admin' ? '<span class="role-badge admin">مسؤول</span>' : ''}
+        ${m.account_role !== 'admin' ? (m.account_active ? '<span class="pill ok">الدخول مفعّل</span>' : '<span class="pill">الدخول موقوف</span>') : ''}
+        <div class="row" style="margin-top:4px">${m.account_role !== 'admin' ? `<button class="btn small" data-acc-reset="${m.user_id}">كلمة مرور مؤقتة جديدة</button>
+          <button class="btn small" data-acc-active="${m.user_id}" data-on="${m.account_active ? 1 : 0}">${m.account_active ? 'إيقاف الدخول' : 'تفعيل الدخول'}</button>` : ''}
+          <button class="btn small" data-acc-unlink="${m.id}">${isMe ? 'فك الربط بحسابي' : 'فك الربط'}</button></div>`;
+    };
+    main.innerHTML = workspaceHead('فريق الإدارة', '<button class="btn primary" id="tm-add">+ إضافة موظف</button>') + `
+      ${companyBanner('قائمة فريق')}
+      <p class="small muted" style="margin:-4px 0 14px">أسماء موظفي الإدارة الذين يمكن تعيينهم مسؤولين عن المهام. تظهر هذه الأسماء في خانة «المسؤول» في متابعة إجراءات الموظفين، وفي أي مهمة تحتاج مسؤولًا. الموقوف لا يظهر في الاختيار، ويبقى اسمه على المهام السابقة.</p>
+      <div class="notice small" style="margin-bottom:14px">لكل موظف حساب دخول خاص به، فيظهر في السجلات والتقارير من قام بكل عملية. كل حسابات الفريق بنفس الصلاحية: استخدام جميع الأدوات وإضافة البيانات. أما الإعدادات والسياسات والنماذج والحسابات فهي لحساب المسؤول فقط.
+        ${members.some((m) => m.user_id === me.id) ? '' : '<br>لإضافة نفسك إلى الفريق: أضف اسمك ثم اضغط «ربط بحساب موجود» واختر حسابك.'}</div>
+      ${members.length ? `<div class="table-wrap"><table><thead><tr><th>الاسم</th><th>المسمى الوظيفي</th><th>حساب الدخول</th><th>مهام مفتوحة مسندة إليه</th><th>الحالة</th><th></th></tr></thead><tbody>
+        ${members.map((m) => `<tr style="${m.is_active ? '' : 'opacity:.55'}"><td><b>${esc(m.name)}</b>${m.user_id === me.id ? ' <span class="small muted">(أنت)</span>' : ''}</td><td>${esc(m.job_title || '—')}</td><td>${accountCell(m)}</td>
+          <td>${m.open_tasks ? `<a href="#/procedures">${m.open_tasks} مهمة</a>` : '<span class="muted">لا يوجد</span>'}</td>
+          <td>${m.is_active ? '<span class="pill ok">نشط</span>' : '<span class="pill">موقوف</span>'}</td>
+          <td class="row" style="justify-content:flex-end"><button class="btn small" data-tm-edit="${m.id}">تعديل</button>
+            <button class="btn small" data-tm-toggle="${m.id}">${m.is_active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('')}
+      </tbody></table></div>
+      <p class="small muted">${active.length} نشط من أصل ${members.length}.</p>` : `<div class="card empty">لا يوجد أعضاء في فريق ${esc(state.company.name_ar)} بعد. أضف أسماء موظفي الإدارة ليتمكن الفريق من تعيين مسؤول لكل مهمة.</div>`}`;
+    const reload = () => ADMIN_VIEWS.team(main);
+    const form = (m) => {
+      const d = openModal(m ? `تعديل — ${m.name}` : 'إضافة موظف إلى فريق الإدارة', `${companyBanner(m ? 'هذا الاسم ضمن فريق' : 'سيُضاف إلى فريق')}
+        <form id="tm-form" class="form-grid">
+          <label class="field"><span>الاسم <span class="req">*</span></span><input type="text" name="name" value="${esc(m?.name || '')}" required maxlength="200"></label>
+          <label class="field"><span>المسمى الوظيفي (اختياري)</span><input type="text" name="job_title" value="${esc(m?.job_title || '')}" maxlength="200"></label>
+        </form><p class="error-text" id="tm-err" hidden></p>`,
+        '<button class="btn primary" form="tm-form" type="submit">حفظ</button><button class="btn" type="button" data-close>إلغاء</button>');
+      $('[data-close]', d).addEventListener('click', () => d.close());
+      $('#tm-form', d).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const body = { name: e.target.name.value, job_title: e.target.job_title.value };
+        try {
+          await api(m ? `/api/admin/procedures/members/${m.id}` : '/api/admin/procedures/members', { method: m ? 'PATCH' : 'POST', body });
+          d.close(); toast(m ? 'تم الحفظ' : 'تمت الإضافة'); reload();
+        } catch (err) { if (err.code === 'company_changed') return d.close(); const x = $('#tm-err', d); x.textContent = err.message; x.hidden = false; }
+      });
+    };
+    // shows a temporary password once, to hand over to the employee (it is not stored readable anywhere)
+    const showTemp = (title, r) => {
+      const d = openModal(title, `<p>سلّم هذه البيانات للموظف. كلمة المرور مؤقتة، وسيُطلب منه تغييرها عند أول دخول. <b>لن تظهر مرة أخرى.</b></p>
+        <dl class="kv"><dt>اسم المستخدم</dt><dd class="ltr">${esc(r.username)}</dd><dt>كلمة المرور المؤقتة</dt><dd class="ltr" style="font-size:18px;letter-spacing:1px"><b>${esc(r.temporary_password)}</b></dd></dl>`,
+        '<button class="btn" type="button" data-copy>نسخ</button><button class="btn primary" type="button" data-close>تم</button>');
+      $('[data-copy]', d).addEventListener('click', async () => { try { await navigator.clipboard.writeText(`اسم المستخدم: ${r.username}\nكلمة المرور المؤقتة: ${r.temporary_password}`); toast('تم النسخ'); } catch { toast('تعذّر النسخ', 'error'); } });
+      $('[data-close]', d).addEventListener('click', () => d.close());
+      d.addEventListener('close', reload);
+    };
+    $$('[data-acc-new]').forEach((b) => b.addEventListener('click', () => {
+      const m = members.find((x) => x.id === Number(b.dataset.accNew));
+      const d = openModal(`حساب دخول — ${m.name}`, `<form id="acc-form" class="stack">
+          <label class="field"><span>اسم المستخدم (بالإنجليزي) <span class="req">*</span></span><input type="text" name="username" dir="ltr" autocapitalize="off" spellcheck="false" required pattern="[a-zA-Z0-9][a-zA-Z0-9._\\-]{2,39}" placeholder="مثال: sara.ahmed"></label>
+          <p class="small muted" style="margin:0">سيصل الموظف إلى ${esc(state.company.name_ar)} بصلاحية الفريق. تُنشأ له كلمة مرور مؤقتة تظهر لك مرة واحدة.</p>
+        </form><p class="error-text" id="acc-err" hidden></p>`,
+        '<button class="btn primary" form="acc-form" type="submit">إنشاء الحساب</button><button class="btn" type="button" data-close>إلغاء</button>');
+      $('[data-close]', d).addEventListener('click', () => d.close());
+      $('#acc-form', d).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try { const r = await api(`/api/admin/team/${m.id}/account`, { method: 'POST', body: { username: e.target.username.value } }); d.close(); showTemp(`تم إنشاء حساب ${m.name}`, r); }
+        catch (err) { const x = $('#acc-err', d); x.textContent = err.message; x.hidden = false; }
+      });
+    }));
+    $$('[data-acc-link]').forEach((b) => b.addEventListener('click', () => {
+      const m = members.find((x) => x.id === Number(b.dataset.accLink));
+      const choices = users.filter((u) => !linkedIds.has(u.id) && u.username !== 'hcteam');
+      const d = openModal(`ربط ${m.name} بحساب موجود`, choices.length ? `<form id="lk-form" class="stack"><label class="field"><span>الحساب</span><select name="user_id">
+          ${choices.map((u) => `<option value="${u.id === me.id ? 'me' : u.id}">${esc(u.display_name)} — ${esc(u.username)}${u.id === me.id ? ' (حسابي)' : ''}</option>`).join('')}</select></label>
+          <p class="small muted" style="margin:0">مثلًا: نفس الموظف في الشركة الأخرى، أو حسابك أنت لتظهر ضمن الفريق وتُسند إليك المهام.</p></form><p class="error-text" id="lk-err" hidden></p>`
+        : '<p class="muted">لا توجد حسابات متاحة للربط.</p>',
+        `${choices.length ? '<button class="btn primary" form="lk-form" type="submit">ربط</button>' : ''}<button class="btn" type="button" data-close>إلغاء</button>`);
+      $('[data-close]', d).addEventListener('click', () => d.close());
+      $('#lk-form', d)?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try { await api(`/api/admin/team/${m.id}/link`, { method: 'POST', body: { user_id: e.target.user_id.value } }); d.close(); toast('تم الربط'); reload(); }
+        catch (err) { const x = $('#lk-err', d); x.textContent = err.message; x.hidden = false; }
+      });
+    }));
+    $$('[data-acc-unlink]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('فك ربط الحساب بهذا الاسم؟ الحساب نفسه لا يُحذف.')) return;
+      try { await api(`/api/admin/team/${b.dataset.accUnlink}/unlink`, { method: 'POST' }); reload(); } catch (err) { toast(err.message, 'error'); }
+    }));
+    $$('[data-acc-reset]').forEach((b) => b.addEventListener('click', async () => {
+      if (!confirm('إنشاء كلمة مرور مؤقتة جديدة؟ ستتوقف كلمة المرور الحالية ويُخرج الموظف من المنصة.')) return;
+      try { showTemp('كلمة مرور مؤقتة جديدة', await api(`/api/admin/users/${b.dataset.accReset}/reset-password`, { method: 'POST' })); } catch (err) { toast(err.message, 'error'); }
+    }));
+    $$('[data-acc-active]').forEach((b) => b.addEventListener('click', async () => {
+      const on = b.dataset.on === '1';
+      if (on && !confirm('إيقاف دخول هذا الموظف؟ سيُخرج من المنصة فورًا، وتبقى سجلاته كما هي.')) return;
+      try { await api(`/api/admin/users/${b.dataset.accActive}/active`, { method: 'POST', body: { is_active: !on } }); reload(); } catch (err) { toast(err.message, 'error'); }
+    }));
+    $('#tm-add').addEventListener('click', () => form(null));
+    $$('[data-tm-edit]').forEach((b) => b.addEventListener('click', () => form(members.find((m) => m.id === Number(b.dataset.tmEdit)))));
+    $$('[data-tm-toggle]').forEach((b) => b.addEventListener('click', async () => {
+      const m = members.find((x) => x.id === Number(b.dataset.tmToggle));
+      if (m.is_active && m.open_tasks && !confirm(`${m.name} مسؤول عن ${m.open_tasks} مهمة مفتوحة. إيقافه لا يزيل اسمه منها، لكنه لن يظهر في الاختيار للمهام الجديدة. متابعة؟`)) return;
+      try { await api(`/api/admin/procedures/members/${m.id}`, { method: 'PATCH', body: { is_active: !m.is_active } }); reload(); } catch (err) { toast(err.message, 'error'); }
+    }));
+  },
+
   async branding(main) {
     const companies = await api('/api/admin/companies');
     const c = companies.find((x) => x.id === state.company.id);

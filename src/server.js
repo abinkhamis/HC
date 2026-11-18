@@ -18,6 +18,8 @@ import { createAirTicketService } from './airtickets.js';
 import { createProcedureService } from './procedures.js';
 import { annotateEmployees, statusCounts, DISPLAY_STATUS } from './employees.js';
 import { createEmployeeImport } from './employee-import.js';
+import { createAccounts } from './accounts.js';
+import { createReports, printPage, htmlTable, escHtml, fmtDate } from './reports.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -46,6 +48,8 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   const airTickets = createAirTicketService(db);
   const procedures = createProcedureService(db);
   const employeeImport = createEmployeeImport(db);
+  const accounts = createAccounts(db);
+  const reports = createReports(db);
   const templateFlow = createTemplateWorkflow(db, storageDir);
 
   // opts: { auth = true, admin = false, tenant = false }
@@ -94,13 +98,13 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
     return { ok: true };
   });
 
-  route('POST', '/api/logout', {}, ({ session, req, res }) => {
+  route('POST', '/api/logout', { allowPasswordChange: true }, ({ session, req, res }) => {
     auth.destroySession(db, session.id);
     res.setHeader('Set-Cookie', `${cookieName(req)}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
     return { ok: true };
   });
 
-  route('GET', '/api/session', {}, ({ session }) => {
+  route('GET', '/api/session', { allowPasswordChange: true }, ({ session }) => {
     const { list, current } = resolveCompany(session);
     return {
       user: session.user,
@@ -391,8 +395,65 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
     });
   });
 
+  // ---------- reports centre ----------
+  const xlsxOut = (res, buf, name) => {
+    res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Length': buf.length, 'Cache-Control': 'no-store',
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` });
+    res.end(buf);
+    return SENT;
+  };
+  const htmlOut = (res, html) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-ancestors 'none'" });
+    res.end(html);
+    return SENT;
+  };
+  const brandOf = (company) => company.color_primary || '#3d4654';
+  route('GET', '/api/reports/weekly', T, ({ company, query }) => reports.weekly(company, query));
+  route('GET', '/api/reports/weekly.xlsx', T, ({ company, query, res }) => { const w = reports.weekly(company, query); return xlsxOut(res, reports.weeklyXlsx(company, query), `التقرير الأسبوعي ${company.name_ar} ${w.from}.xlsx`); });
+  route('GET', '/api/reports/weekly/print', T, ({ company, query, res }) => {
+    const w = reports.weekly(company, query);
+    const cards = `<div class="cards"><div class="card"><b>${w.totals.actions}</b>عملية</div><div class="card"><b>${w.totals.people}</b>موظف شارك</div>
+      <div class="card"><b>${w.totals.done_tasks}</b>مهمة أُنجزت</div><div class="card"><b>${w.totals.open_tasks}</b>مهمة مفتوحة</div><div class="card"><b>${w.totals.overdue}</b>متأخرة</div></div>`;
+    const people = htmlTable(['الموظف', 'عدد العمليات', 'مهام أنجزها', 'التوزيع حسب الأداة'],
+      w.people.map((p) => [p.user, p.total, p.done_tasks, Object.entries(p.by_source).map(([k, v]) => `${k}: ${v}`).join(' · ')]));
+    const detail = w.people.map((p) => `<h2>${escHtml(p.user)} — ${p.total} عملية</h2>` + htmlTable(['الوقت', 'الأداة', 'العملية', 'على', 'التفاصيل'], p.items.map((i) => [i.at, i.source_label, i.action, i.subject, i.detail])));
+    const owners = htmlTable(['المسؤول', 'مهام مفتوحة', 'منها متأخرة'], w.owners.map((o) => [o.owner, o.open, o.overdue ? { html: `<span class="late">${o.overdue}</span>` } : 0]));
+    const open = htmlTable(['المسؤول', 'المهمة', 'الموظف', 'الحالة', 'الموعد'], w.open_tasks.map((o) => [o.owner, o.task, o.employee_name, `${o.case_label} ${o.case_no}`, o.overdue ? { html: `<span class="late">${escHtml(fmtDate(o.due_date))} — متأخرة</span>` } : fmtDate(o.due_date)]));
+    return htmlOut(res, printPage(`التقرير الأسبوعي للفريق — ${company.name_ar}`, `الأسبوع من ${fmtDate(w.from)} إلى ${fmtDate(w.to)} · أُعد في ${w.generated_at} (بتوقيت الرياض)`,
+      [cards, '<h2>ملخص الفريق</h2>', people, '<h2>المهام المفتوحة حسب المسؤول</h2>', owners, open, ...detail], brandOf(company)));
+  });
+  route('GET', '/api/reports/activity', T, ({ company, query }) => reports.activity(company, query));
+  route('GET', '/api/reports/activity.xlsx', T, ({ company, query, res }) => xlsxOut(res, reports.activityXlsx(company, query), `سجل النشاط ${company.name_ar}.xlsx`));
+  route('GET', '/api/reports/employees.xlsx', T, ({ company, query, res }) => xlsxOut(res, reports.employeesXlsx(company, query), `دليل الموظفين ${company.name_ar}.xlsx`));
+  route('GET', '/api/reports/employees/print', T, ({ company, query, res }) => {
+    const rows = reports.employees(company, query);
+    return htmlOut(res, printPage(`دليل الموظفين — ${company.name_ar}`, `${rows.length} موظف · ${fmtDate(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Riyadh' }))}`,
+      [htmlTable(['الرقم الوظيفي', 'الاسم', 'الإدارة', 'المسمى', 'الجنسية', 'المباشرة', 'آخر يوم عمل', 'الحالة'],
+        rows.map((e) => [e.employee_no, e.full_name_ar, e.department, e.job_title, e.nationality, fmtDate(e.hire_date), fmtDate(e.end_date), e.status]))], brandOf(company)));
+  });
+  route('GET', '/api/reports/movements', T, ({ company, query }) => reports.movements(company, query));
+  route('GET', '/api/reports/movements.xlsx', T, ({ company, query, res }) => xlsxOut(res, reports.movementsXlsx(company, query), `المباشرون والمنتهية خدماتهم ${company.name_ar}.xlsx`));
+  route('GET', '/api/reports/movements/print', T, ({ company, query, res }) => {
+    const m = reports.movements(company, query);
+    const cols = ['الرقم الوظيفي', 'الاسم', 'الإدارة', 'المسمى'];
+    return htmlOut(res, printPage(`المباشرون والمنتهية خدماتهم — ${company.name_ar}`, `من ${fmtDate(m.from)} إلى ${fmtDate(m.to)}`, [
+      `<h2>المباشرون (${m.joiners.length})</h2>`, htmlTable([...cols, 'تاريخ المباشرة'], m.joiners.map((e) => [e.employee_no, e.full_name_ar, e.department, e.job_title, fmtDate(e.hire_date)])),
+      `<h2>المنتهية خدماتهم (${m.leavers.length})</h2>`, htmlTable([...cols, 'آخر يوم عمل'], m.leavers.map((e) => [e.employee_no, e.full_name_ar, e.department, e.job_title, fmtDate(e.end_date)])),
+    ], brandOf(company)));
+  });
+
+  // ---------- personal accounts («فريق الإدارة») ----------
+  route('POST', '/api/account/password', { allowPasswordChange: true }, ({ session, body }) => accounts.changeOwnPassword(session.user, session.id, body));
+  route('POST', '/api/admin/team/:id/account', { admin: true, tenant: true }, ({ company, params, body }) => accounts.createForMember(company, params.id, body));
+  route('POST', '/api/admin/team/:id/link', { admin: true, tenant: true }, ({ company, params, body, session }) =>
+    accounts.linkMember(company, params.id, body?.user_id === 'me' ? session.user.id : body?.user_id));
+  route('POST', '/api/admin/team/:id/unlink', { admin: true, tenant: true }, ({ company, params }) => accounts.unlinkMember(company, params.id));
+  route('POST', '/api/admin/users/:id/reset-password', { admin: true }, ({ session, params }) => accounts.resetPassword(session.user, params.id));
+  route('POST', '/api/admin/users/:id/active', { admin: true }, ({ session, params, body }) => accounts.setActive(session.user, params.id, !!body?.is_active));
+
   route('GET', '/api/admin/users', { admin: true }, () =>
-    db.prepare(`SELECT u.id, u.username, u.display_name, u.role, u.is_active,
+    db.prepare(`SELECT u.id, u.username, u.display_name, u.role, u.is_active, u.must_change_password,
                 (SELECT group_concat(c.name_ar, '، ') FROM user_companies uc JOIN companies c ON c.id = uc.company_id WHERE uc.user_id = u.id) AS companies
                 FROM users u ORDER BY u.id`).all());
 
@@ -563,13 +624,15 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
       if (match.opts.auth !== false) {
         ctx.session = auth.loadSession(db, cookies(req)[cookieName(req)]);
         if (!ctx.session) throw new HttpError(401, 'يجب تسجيل الدخول.', 'unauthenticated');
+        // a temporary password must be replaced before anything else
+        if (ctx.session.user.must_change_password && !match.opts.allowPasswordChange) throw new HttpError(403, 'يجب تغيير كلمة المرور المؤقتة أولًا.', 'password_change_required');
         if (match.opts.admin && ctx.session.user.role !== 'admin') throw new HttpError(403, 'هذه العملية متاحة لحساب المسؤول فقط.', 'forbidden');
         if (match.opts.tenant) {
           const { current } = resolveCompany(ctx.session);
           if (!current) throw new HttpError(403, 'لا توجد شركة متاحة لحسابك.');
           // The page must declare which company it believes is active. If another
           // tab switched company meanwhile, refuse instead of reading/writing the wrong one.
-          if (Number(req.headers['x-company-id']) !== current.id) throw new HttpError(409, 'تم تغيير الشركة المختارة. سيتم تحديث الصفحة.', 'company_changed');
+          if (Number(req.headers['x-company-id'] ?? (req.method === 'GET' ? url.searchParams.get('company') : null)) !== current.id) throw new HttpError(409, 'تم تغيير الشركة المختارة. سيتم تحديث الصفحة.', 'company_changed');
           ctx.company = companyById(current.id);
           ctx.tenant = tenantRepo(db, current.id);
         }

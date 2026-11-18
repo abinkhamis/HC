@@ -134,6 +134,17 @@ test('each step can have its own owner from the team list', async () => {
   assert.ok(s.by_owner.some((o) => o.label === 'بدون مسؤول'));
   // an id that is not in the company's team list is refused
   assert.equal((await team('PATCH', `/api/procedures/steps/${s1.id}`, { owner_member_id: 999999 })).status, 400);
+  // «فريق الإدارة»: optional job title, and a count of open tasks per person
+  let members = ok(await admin('PATCH', `/api/admin/procedures/members/${m1.id}`, { job_title: 'أخصائي موارد بشرية' })).members;
+  assert.equal(members.find((m) => m.id === m1.id).job_title, 'أخصائي موارد بشرية');
+  members = ok(await team('GET', '/api/procedures/lists')).members;
+  assert.equal(members.find((m) => m.id === m1.id).open_tasks, 1);
+  assert.equal(members.find((m) => m.id === m2.id).open_tasks, 1);
+  ok(await team('PATCH', `/api/procedures/steps/${s1.id}`, { status: 'done', done_date: '2026-01-05' }));
+  members = ok(await team('GET', '/api/procedures/lists')).members;
+  assert.equal(members.find((m) => m.id === m1.id).open_tasks, 0, 'a finished step is no longer an open task');
+  assert.equal(ok(await admin('POST', '/api/admin/procedures/members', { name: 'عضو اختبار ٣', job_title: 'منسق' })).members.find((m) => m.name === 'عضو اختبار ٣').job_title, 'منسق');
+  assert.equal((await team('PATCH', `/api/admin/procedures/members/${m1.id}`, { job_title: 'x' })).status, 403, 'team cannot edit the team list');
 });
 
 test('company separation for members and the new onboarding flow', async () => {
