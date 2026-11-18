@@ -94,7 +94,7 @@ export const ENTITIES = {
       { name: 'employee_id', label: 'الموظف (اتركه فارغًا لحساب الشركة)', type: 'ref', ref: 'employees' },
       { name: 'account_holder', label: 'اسم صاحب الحساب', type: 'text', required: true },
       { name: 'bank_name', label: 'البنك', type: 'text', required: true },
-      { name: 'iban', label: 'رقم الآيبان (IBAN)', type: 'iban', required: true },
+      { name: 'iban', label: 'رقم الآيبان (IBAN)', type: 'iban' },
       { name: 'is_primary', label: 'الحساب الأساسي', type: 'checkbox' },
     ],
     list: ['account_holder', 'employee_id', 'bank_name', 'iban', 'is_primary'],

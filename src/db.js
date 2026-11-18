@@ -80,6 +80,24 @@ export function contractsTableSql(name) {
 }
 
 // Steps of an employee-procedures case (rebuilt in a migration for databases created before step owners).
+export function bankAccountsSql(name) {
+  return `CREATE TABLE IF NOT EXISTS ${name} (
+  id             INTEGER PRIMARY KEY,
+  company_id     INTEGER NOT NULL REFERENCES companies (id),
+  employee_id    INTEGER,
+  account_holder TEXT NOT NULL,
+  bank_name      TEXT NOT NULL,
+  iban           TEXT,
+  is_primary     INTEGER NOT NULL DEFAULT 0,
+  created_by     INTEGER REFERENCES users (id),
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (company_id, id),
+  UNIQUE (company_id, iban),
+  FOREIGN KEY (company_id, employee_id) REFERENCES employees (company_id, id)
+);`;
+}
+
 export function procCaseStepsSql(name) {
   return `CREATE TABLE IF NOT EXISTS ${name} (
   id                 INTEGER PRIMARY KEY,
@@ -253,21 +271,7 @@ CREATE TABLE IF NOT EXISTS attestations (
   FOREIGN KEY (company_id, employee_id) REFERENCES employees (company_id, id)
 );
 
-CREATE TABLE IF NOT EXISTS bank_accounts (
-  id             INTEGER PRIMARY KEY,
-  company_id     INTEGER NOT NULL REFERENCES companies (id),
-  employee_id    INTEGER,
-  account_holder TEXT NOT NULL,
-  bank_name      TEXT NOT NULL,
-  iban           TEXT NOT NULL,
-  is_primary     INTEGER NOT NULL DEFAULT 0,
-  created_by     INTEGER REFERENCES users (id),
-  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (company_id, id),
-  UNIQUE (company_id, iban),
-  FOREIGN KEY (company_id, employee_id) REFERENCES employees (company_id, id)
-);
+${bankAccountsSql('bank_accounts')}
 
 -- Global catalogue of letter kinds (salary certificate, experience letter...).
 CREATE TABLE IF NOT EXISTS letter_types (
@@ -846,6 +850,7 @@ SELECT d.*, COALESCE((SELECT SUM(p.amount) FROM deliverable_payments p
                       WHERE p.company_id = d.company_id AND p.deliverable_id = d.id AND p.voided_at IS NULL), 0) AS paid_total
 FROM contract_deliverables d;`);
   addStepOwners(db);
+  optionalIban(db);
   employeeIdentityRules(db);
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_team_member_user ON proc_team_members (company_id, user_id) WHERE user_id IS NOT NULL`);
   // Document kinds used by the consulting tool (templates are uploaded per company by the Admin).
@@ -898,6 +903,26 @@ function rebuildLegacyContracts(db) {
 // Adds the per-step owner (a team member of the same company). SQLite cannot add a
 // composite foreign key to an existing table, so proc_case_steps is rebuilt once,
 // keeping every row as it is.
+// The IBAN of a bank account became optional (2026-11-18). SQLite cannot drop NOT NULL from a
+// column, so bank_accounts is rebuilt once with the same columns and every row kept as it is.
+function optionalIban(db) {
+  const col = db.prepare('PRAGMA table_info(bank_accounts)').all().find((c) => c.name === 'iban');
+  if (!col || !col.notnull) return;
+  const cols = db.prepare('PRAGMA table_info(bank_accounts)').all().map((c) => c.name).join(', ');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    tx(db, () => {
+      db.exec(bankAccountsSql('bank_accounts_v2'));
+      db.exec(`INSERT INTO bank_accounts_v2 (${cols}) SELECT ${cols} FROM bank_accounts`);
+      db.exec('DROP TABLE bank_accounts');
+      db.exec('ALTER TABLE bank_accounts_v2 RENAME TO bank_accounts');
+      db.exec('CREATE INDEX IF NOT EXISTS ix_bank_accounts_company ON bank_accounts (company_id)');
+    });
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
 function addStepOwners(db) {
   const cols = db.prepare('PRAGMA table_info(proc_case_steps)').all().map((c) => c.name);
   if (!cols.length || cols.includes('owner_member_id')) return;
