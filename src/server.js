@@ -22,6 +22,7 @@ import { createAccounts } from './accounts.js';
 import { createReports, printPage, htmlTable, escHtml, fmtDate } from './reports.js';
 import { createHome } from './home.js';
 import { createLoginGuard, clientIp, isHttps } from './login-guard.js';
+import { createBackups } from './backup.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HEX = /^#[0-9A-Fa-f]{6}$/;
@@ -54,6 +55,7 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
   const reports = createReports(db);
   const home = createHome(db, { airTickets });
   const loginGuard = createLoginGuard();
+  const backups = createBackups(db, { dbFile, storageDir });
   const templateFlow = createTemplateWorkflow(db, storageDir);
 
   // opts: { auth = true, admin = false, tenant = false }
@@ -455,6 +457,22 @@ export function createApp({ dbFile = path.join(ROOT, 'data', 'hub.db'), storageD
       `<h2>المنتهية خدماتهم (${m.leavers.length})</h2>`, htmlTable([...cols, 'آخر يوم عمل'], m.leavers.map((e) => [e.employee_no, e.full_name_ar, e.department, e.job_title, fmtDate(e.end_date)])),
     ], brandOf(company)));
   });
+
+  // ---------- full backup (Admin) ----------
+  const backupOut = (res) => {
+    const { zip } = backups.build();
+    const stamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Riyadh' }).slice(0, 16).replace(/[: ]/g, '-');
+    res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Length': zip.length, 'Cache-Control': 'no-store',
+      'Content-Disposition': `attachment; filename="HC-backup-${stamp}.zip"` });
+    res.end(zip);
+    return SENT;
+  };
+  route('GET', '/api/admin/backup', { admin: true }, ({ res }) => backupOut(res));
+  route('GET', '/api/admin/backup/status', { admin: true }, () => backups.status());
+  route('POST', '/api/admin/backup/key', { admin: true }, ({ session }) => backups.newKey(session.user.id));
+  route('POST', '/api/admin/backup/key/revoke', { admin: true }, () => backups.revoke());
+  // automatic weekly download from the Admin's computer: the backup key only allows this download
+  route('GET', '/api/backup', { auth: false }, ({ req, res }) => { backups.checkKey(req.headers.authorization); return backupOut(res); });
 
   // ---------- personal accounts («فريق الإدارة») ----------
   route('POST', '/api/account/password', { allowPasswordChange: true }, ({ session, body }) => accounts.changeOwnPassword(session.user, session.id, body));

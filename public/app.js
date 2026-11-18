@@ -106,6 +106,7 @@ const ICONS = {
   attestations: '<circle cx="12" cy="10" r="6"/><path d="M9 10l2 2 4-4M8.5 15.5L7 22l5-3 5 3-1.5-6.5"/>',
   bank_accounts: '<path d="M3 10l9-6 9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 21h18"/>',
   attestations: '<path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><circle cx="12" cy="14" r="3"/><path d="M10.5 16.5 9.5 20l2.5-1 2.5 1-1-3.5"/>',
+  backup: '<path d="M12 3v12M7 10l5 5 5-5M4 17v3h16v-3"/>',
   reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   procedures: '<path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 12l2 2 4-4M9 17h6"/>',
   'air-tickets': '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/>',
@@ -201,6 +202,7 @@ function navItems() {
       { href: '#/admin/letter-types', key: 'list', label: 'أنواع الخطابات' },
       { href: '#/admin/companies', key: 'companies', label: 'الشركات' },
       { href: '#/admin/users', key: 'users', label: 'المستخدمون' },
+      { href: '#/admin/backup', key: 'backup', label: 'النسخ الاحتياطي' },
     );
   }
   return items;
@@ -672,6 +674,45 @@ async function viewLetters(main) {
 
 // ---------- admin views ----------
 const ADMIN_VIEWS = {
+  // Full backup: download now, or a key for the automatic weekly download on the Admin's computer.
+  async backup(main) {
+    const st = await api('/api/admin/backup/status');
+    main.innerHTML = workspaceHead('النسخ الاحتياطي', '<button class="btn primary" id="bk-now">تنزيل نسخة كاملة الآن</button>') + `
+      <div class="grid cols-2">
+        <div class="card stack"><h2>ماذا تحتوي النسخة؟</h2>
+          <p style="margin:0">ملف واحد (.zip) فيه كل بيانات المنصة لكل الشركات، وكل الملفات المرفوعة (الشعارات، النماذج، التواقيع، الشهادات).</p>
+          <p class="small muted" style="margin:0">بهذا الملف تُستعاد المنصة كما هي في أي مكان: هذا الجهاز أو جهاز آخر أو خادم. احفظه في مكان آمن، ففيه كل البيانات.</p></div>
+        <div class="card stack"><h2>التنزيل التلقائي الأسبوعي</h2>
+          ${st.key ? `<p style="margin:0"><span class="pill ok">مفعّل</span> أُنشئ المفتاح ${esc(fmtTime(st.key.created_at))}${st.key.created_by ? ` بواسطة ${esc(st.key.created_by)}` : ''}.</p>
+            <p class="small" style="margin:0">آخر تنزيل تلقائي: ${st.key.last_used_at ? `<b>${esc(fmtTime(st.key.last_used_at))}</b>` : '<span class="muted">لم يتم بعد</span>'}</p>`
+          : '<p class="muted" style="margin:0">غير مفعّل. أنشئ مفتاحًا وضعه في أداة النسخ على جهازك.</p>'}
+          <p class="small muted" style="margin:0">المفتاح يسمح بتنزيل النسخة فقط — لا يدخل المنصة ولا يغيّر شيئًا. إنشاء مفتاح جديد يلغي القديم.</p>
+          <div class="row"><button class="btn" id="bk-key">${st.key ? 'مفتاح جديد' : 'إنشاء مفتاح'}</button>${st.key ? '<button class="btn" id="bk-revoke">إلغاء المفتاح</button>' : ''}</div></div>
+      </div>`;
+    $('#bk-now').addEventListener('click', async (e) => {
+      e.target.disabled = true; e.target.textContent = 'جارٍ تجهيز النسخة…';
+      try { await download('/api/admin/backup', `HC-backup-${new Date().toISOString().slice(0, 10)}.zip`); toast('تم تنزيل النسخة الكاملة'); }
+      catch (err) { toast(err.message, 'error'); }
+      finally { e.target.disabled = false; e.target.textContent = 'تنزيل نسخة كاملة الآن'; }
+    });
+    $('#bk-key').addEventListener('click', async () => {
+      if (st.key && !confirm('إنشاء مفتاح جديد يوقف المفتاح الحالي، ويجب وضع الجديد في أداة النسخ على جهازك. متابعة؟')) return;
+      try {
+        const r = await api('/api/admin/backup/key', { method: 'POST' });
+        const d = openModal('مفتاح النسخ الاحتياطي', `<p>انسخ المفتاح وضعه في أداة النسخ التلقائي على جهازك. <b>لن يظهر مرة أخرى.</b></p>
+          <textarea readonly dir="ltr" style="min-height:70px;font-family:monospace" id="bk-k">${esc(r.key)}</textarea>`,
+          '<button class="btn" type="button" data-copy>نسخ</button><button class="btn primary" type="button" data-close>تم</button>');
+        $('[data-copy]', d).addEventListener('click', async () => { try { await navigator.clipboard.writeText(r.key); toast('تم النسخ'); } catch { $('#bk-k', d).select(); } });
+        $('[data-close]', d).addEventListener('click', () => d.close());
+        d.addEventListener('close', () => ADMIN_VIEWS.backup(main));
+      } catch (err) { toast(err.message, 'error'); }
+    });
+    $('#bk-revoke')?.addEventListener('click', async () => {
+      if (!confirm('إلغاء المفتاح يوقف التنزيل التلقائي. متابعة؟')) return;
+      try { await api('/api/admin/backup/key/revoke', { method: 'POST' }); ADMIN_VIEWS.backup(main); } catch (err) { toast(err.message, 'error'); }
+    });
+  },
+
   // Department staff (per company) who can be made responsible for tasks — the same list feeds
   // the «المسؤول» choice in employee procedures (and any later tool that assigns a person).
   async team(main) {
