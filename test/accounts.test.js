@@ -136,3 +136,13 @@ test('the Admin is also a member of the team; the same person can be linked in t
   assert.equal(ok(await admin('GET', '/api/procedures/lists')).members[0].user_id, null);
   await admin.useCompany(A);
 });
+
+test('the Admin can rename a company; the team cannot; a name cannot be empty', async () => {
+  const before = db.prepare('SELECT code, name_ar FROM companies WHERE id = ?').get(B);
+  assert.equal((await sara('PATCH', `/api/admin/companies/${B}`, { name_ar: 'x' })).status, 403);
+  assert.equal((await admin('PATCH', `/api/admin/companies/${B}`, { name_ar: '  ' })).status, 400);
+  ok(await admin('PATCH', `/api/admin/companies/${B}`, { name_ar: 'اسم جديد للشركة', name_en: 'New Company Name' }));
+  const after = db.prepare('SELECT code, name_ar, name_en FROM companies WHERE id = ?').get(B);
+  assert.deepEqual([after.name_ar, after.name_en, after.code], ['اسم جديد للشركة', 'New Company Name', before.code], 'the code never changes');
+  ok(await admin('PATCH', `/api/admin/companies/${B}`, { name_ar: before.name_ar }));
+});

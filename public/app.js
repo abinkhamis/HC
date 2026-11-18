@@ -961,7 +961,8 @@ const ADMIN_VIEWS = {
           <td class="ltr">${esc(c.code)}</td>
           <td><div class="row" style="gap:4px">${Object.values(c.colors).filter(Boolean).map((h) => `<span title="${h}" style="width:18px;height:18px;border-radius:4px;background:${h};border:1px solid var(--border);display:inline-block"></span>`).join('') || '<span class="muted small">غير محددة</span>'}</div></td>
           <td>${c.is_active ? '<span class="pill ok">نشطة</span>' : '<span class="pill off">موقوفة</span>'}</td>
-          <td><button class="btn small" data-toggle="${c.id}" data-active="${c.is_active ? 1 : 0}">${c.is_active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('')}
+          <td class="row" style="justify-content:flex-end"><button class="btn small" data-rename="${c.id}">تعديل الاسم</button>
+            <button class="btn small" data-toggle="${c.id}" data-active="${c.is_active ? 1 : 0}">${c.is_active ? 'إيقاف' : 'تفعيل'}</button></td></tr>`).join('')}
       </tbody></table></div>
       <form class="card stack" id="co-form" style="margin-top:16px"><h2>إضافة شركة</h2>
         <div class="form-grid">
@@ -972,6 +973,22 @@ const ADMIN_VIEWS = {
         </div>
         <p class="muted small">الشعار والألوان تُضاف بعد الإنشاء من صفحة «هوية الشركة» — لا تُعيَّن ألوان افتراضية.</p>
         <div class="row"><button class="btn primary">إضافة الشركة</button></div></form>`;
+    $$('[data-rename]').forEach((b) => b.addEventListener('click', () => {
+      const c = list.find((x) => x.id === Number(b.dataset.rename));
+      const d = openModal(`تعديل اسم الشركة — ${c.name_ar}`, `<form id="cn-form" class="form-grid">
+          <label class="field"><span>الاسم بالعربية <span class="req">*</span></span><input type="text" name="name_ar" value="${esc(c.name_ar)}" required maxlength="120"></label>
+          <label class="field"><span>الاسم بالإنجليزية <span class="req">*</span></span><input type="text" name="name_en" class="ltr" value="${esc(c.name_en)}" required maxlength="120"></label>
+        </form><p class="small muted">الرمز (${esc(c.code)}) لا يتغير. الاسم الجديد يظهر في كل الصفحات والتقارير، ولا يغيّر الخطابات الصادرة سابقًا.</p><p class="error-text" id="cn-err" hidden></p>`,
+        '<button class="btn primary" form="cn-form" type="submit">حفظ</button><button class="btn" type="button" data-close>إلغاء</button>');
+      $('[data-close]', d).addEventListener('click', () => d.close());
+      $('#cn-form', d).addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+          await api(`/api/admin/companies/${c.id}`, { method: 'PATCH', body: { name_ar: e.target.name_ar.value, name_en: e.target.name_en.value } });
+          d.close(); await loadSession(); renderShell(); toast('تم حفظ اسم الشركة');
+        } catch (err) { const x = $('#cn-err', d); x.textContent = err.message; x.hidden = false; }
+      });
+    }));
     $$('[data-toggle]').forEach((b) => b.addEventListener('click', async () => {
       try { await api(`/api/admin/companies/${b.dataset.toggle}`, { method: 'PATCH', body: { is_active: b.dataset.active !== '1' } }); await loadSession(); renderShell(); }
       catch (err) { toast(err.message, 'error'); }
